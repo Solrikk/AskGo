@@ -1,0 +1,98 @@
+{
+  "greetings": {
+    "hi": "Hello! I'm your advanced Go assistant. How can I help you today?",
+    "hello": "Hi there! Ready to tackle more complex Go topics?",
+    "hey": "Hey! Looking for deeper Go insights? Let me know what you need."
+  },
+
+  "common_questions": {
+    "what": "I can assist with advanced Go concepts, optimization techniques, or concurrency patterns. What are you curious about?",
+    "how": "I’d be happy to provide a detailed explanation. Could you specify which part of Go you need more clarity on?",
+    "why": "Understanding the deeper reasoning behind Go design decisions helps write more efficient code. Which specific aspect would you like to explore?"
+  },
+
+  "knowledge_base": [
+    {
+      "question": "What is Go?",
+      "answer": "Go is a modern programming language developed by Google, known for its simplicity, efficiency, and excellent concurrency support."
+    },
+    {
+      "question": "What are goroutines?",
+      "answer": "Goroutines are lightweight threads managed by the Go runtime that enable concurrent execution with minimal resources."
+    },
+    {
+      "question": "What are channels?",
+      "answer": "Channels are the primary mechanism for communication between goroutines in Go, implementing CSP-style message passing."
+    },
+    {
+      "question": "How do I use context in Go?",
+      "answer": "The context package provides a way to manage deadlines, cancellation signals, and request-scoped data across multiple goroutines."
+    },
+    {
+      "question": "What are Go modules?",
+      "answer": "Go modules are the dependency management system introduced in Go 1.11 to version and manage external packages."
+    },
+    {
+      "question": "What are interfaces in Go?",
+      "answer": "Interfaces define a set of methods without specifying the underlying data type. Any type implementing these methods satisfies the interface."
+    }
+  ],
+
+  "advanced_topics": [
+    {
+      "question": "How do I optimize Go code for high performance?",
+      "answer": [
+        "Use profiling tools like pprof to identify bottlenecks.",
+        "Leverage concurrency where appropriate, but avoid unnecessary goroutines.",
+        "Use efficient data structures and algorithms.",
+        "Minimize allocations and be mindful of garbage collection."
+      ]
+    },
+    {
+      "question": "What is reflection in Go?",
+      "answer": [
+        "Reflection in Go allows a program to inspect or modify its own structure at runtime.",
+        "It's provided by the reflect package.",
+        "While powerful, reflection can reduce code clarity and performance, so it should be used sparingly."
+      ]
+    },
+    {
+      "question": "How can I implement design patterns in Go?",
+      "answer": [
+        "Go’s simplicity encourages idiomatic solutions that often don’t require traditional OOP design patterns.",
+        "Patterns like Singleton, Factory, and Strategy can be implemented with Go’s interfaces and structs.",
+        "Focus on composition over inheritance, and leverage Go’s interfaces for polymorphism."
+      ]
+    }
+  ],
+
+  "best_practices": [
+    {
+      "title": "Error Handling",
+      "description": "Always check for errors immediately after a function call. Use custom error types for improved clarity."
+    },
+    {
+      "title": "Project Structure",
+      "description": "Organize code by functionality, keep package scope small, and adhere to standard naming conventions."
+    },
+    {
+      "title": "Testing",
+      "description": "Write unit tests using the testing package, leverage table-driven tests, and use go test for coverage analysis."
+    },
+    {
+      "title": "Profiling & Monitoring",
+      "description": "Use pprof and trace tools to find bottlenecks. Monitor production services with metrics and logs."
+    }
+  ],
+
+  "code_samples": [
+    {
+      "title": "Goroutines & Channels",
+      "code": "package main\n\nimport (\n    \"fmt\"\n    \"time\"\n)\n\nfunc main() {\n    ch := make(chan string)\n\n    go func() {\n        time.Sleep(1 * time.Second)\n        ch <- \"Hello from Goroutine!\"\n    }()\n\n    msg := <-ch\n    fmt.Println(msg)\n}\n"
+    },
+    {
+      "title": "Using Context for Cancellation",
+      "code": "package main\n\nimport (\n    \"context\"\n    \"fmt\"\n    \"time\"\n)\n\nfunc main() {\n    ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)\n    defer cancel()\n\n    done := make(chan bool)\n\n    go func() {\n        // Simulate work\n        time.Sleep(3 * time.Second)\n        done <- true\n    }()\n\n    select {\n    case <-ctx.Done():\n        fmt.Println(\"Operation timed out\")\n    case <-done:\n        fmt.Println(\"Operation completed\")\n    }\n}\n"
+    }
+  ]
+}
