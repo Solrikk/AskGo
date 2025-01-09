@@ -1,0 +1,55 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width">
+    <title>Go AI Assistant</title>
+    <link href="/static/style.css" rel="stylesheet" type="text/css" />
+</head>
+<body>
+    <div class="container">
+        <h1>Go AI Assistant</h1>
+        <div class="chat-container">
+            <div id="chat-messages"></div>
+            <div class="input-area">
+                <input type="text" id="question" placeholder="Ask a question about Go...">
+                <button onclick="askQuestion()">Send</button>
+            </div>
+        </div>
+    </div>
+    <script>
+    function askQuestion() {
+        const input = document.getElementById('question');
+        const messages = document.getElementById('chat-messages');
+        
+        const question = input.value;
+        if (!question) return;
+
+        // Добавляем вопрос
+        messages.innerHTML += `<div class="message user-message">${question}</div>`;
+        
+        // Отправляем запрос
+        fetch('/ai', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({text: question})
+        })
+        .then(response => response.json())
+        .then(data => {
+            messages.innerHTML += `<div class="message ai-message">${data.answer}</div>`;
+            messages.scrollTop = messages.scrollHeight;
+        });
+
+        input.value = '';
+    }
+
+    // Отправка по Enter
+    document.getElementById('question').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            askQuestion();
+        }
+    });
+    </script>
+</body>
+</html>
