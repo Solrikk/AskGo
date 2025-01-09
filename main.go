@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"html/template"
 	"io/ioutil"
+	"log"
 	"math"
+	"math/rand"
 	"net/http"
 	"strings"
 	"sync"
@@ -28,8 +30,8 @@ type KnowledgeEntry struct {
 }
 
 type KnowledgeBase struct {
-	Entries []KnowledgeEntry
-	mu      sync.RWMutex
+	Entries        []KnowledgeEntry
+	mu             sync.RWMutex
 	LearnedEntries map[string]string
 }
 
@@ -40,13 +42,25 @@ func (kb *KnowledgeBase) Learn(question, answer string) {
 }
 
 type AIEngine struct {
-	KB         *KnowledgeBase
-	Embeddings map[string][]float64
+	KB               *KnowledgeBase
+	Embeddings       map[string][]float64
+	Greetings        map[string]string
+	CommonQuestions  map[string]string
+	DefaultResponses map[string]string
+	ContextMemory    []Interaction
+	Patterns         map[string]float64
+}
+
+type Interaction struct {
+	Question string
+	Answer   string
+	Keywords []string
+	Score    float64
 }
 
 func NewKnowledgeBase() *KnowledgeBase {
 	return &KnowledgeBase{
-		Entries: []KnowledgeEntry{},
+		Entries:        []KnowledgeEntry{},
 		LearnedEntries: make(map[string]string),
 	}
 }
@@ -78,32 +92,186 @@ func (kb *KnowledgeBase) FindBestMatch(question string, embeddings map[string][]
 	return bestAnswer, bestScore
 }
 
+func loadPrompts() (map[string]string, map[string]string, []KnowledgeEntry, map[string]string) {
+	data, err := ioutil.ReadFile("prompt.json")
+	if err != nil {
+		log.Fatal("Error loading prompt.json:", err)
+	}
+
+	var config struct {
+		Greetings       map[string]string `json:"greetings"`
+		CommonQuestions map[string]string `json:"common_questions"`
+		KnowledgeBase   []struct {
+			Question string `json:"question"`
+			Answer   string `json:"answer"`
+		} `json:"knowledge_base"`
+		DefaultResponses map[string]string `json:"default_responses"`
+	}
+
+	if err := json.Unmarshal(data, &config); err != nil {
+		log.Fatal("Error parsing prompt.json:", err)
+	}
+
+	entries := make([]KnowledgeEntry, len(config.KnowledgeBase))
+	for i, kb := range config.KnowledgeBase {
+		entries[i] = KnowledgeEntry{
+			Question: kb.Question,
+			Answer:   kb.Answer,
+		}
+	}
+	return config.Greetings, config.CommonQuestions, entries, config.DefaultResponses
+}
+
 func NewAIEngine(embeddings map[string][]float64) *AIEngine {
 	kb := NewKnowledgeBase()
-	kb.AddEntry("Что такое горутина в Go?", "Горутины — это легковесные потоки, управляемые рантаймом Go, позволяющие выполнять конкурентные задачи с минимальными ресурсами.", embeddings)
-	kb.AddEntry("Что такое канал в Go?", "Каналы — это средства коммуникации между горутинами, позволяющие безопасно обмениваться данными согласно принципам CSP.", embeddings)
-	kb.AddEntry("Что такое интерфейс в Go?", "Интерфейсы в Go определяют поведение через методы, обеспечивая полиморфизм и гибкость дизайна кода.", embeddings)
+	greetings, commonQuestions, knowledgeBase, defaultResponses := loadPrompts()
+
+	for _, entry := range knowledgeBase {
+		kb.AddEntry(entry.Question, entry.Answer, embeddings)
+	}
+
 	return &AIEngine{
-		KB:         kb,
-		Embeddings: embeddings,
+		KB:               kb,
+		Embeddings:       embeddings,
+		Greetings:        greetings,
+		CommonQuestions:  commonQuestions,
+		DefaultResponses: defaultResponses,
+		Patterns:         make(map[string]float64),
 	}
 }
 
-func (ai *AIEngine) GenerateAnswer(question string) string {
-	answer, score := ai.KB.FindBestMatch(question, ai.Embeddings)
-	if score > 0.5 {
-		return answer
-	}
-	doc, _ := prose.NewDocument(question)
-	tokens := doc.Tokens()
-	var keywords []string
-	for _, tok := range tokens {
-		if tok.Tag == "NOUN" || tok.Tag == "PROPN" {
-			keywords = append(keywords, tok.Text)
+func (ai *AIEngine) findSimilarInteraction(keywords []string) (Interaction, float64) {
+	var bestMatch Interaction
+	var bestScore float64
+
+	for _, interaction := range ai.ContextMemory {
+		var matchCount int
+		for _, k1 := range keywords {
+			for _, k2 := range interaction.Keywords {
+				if strings.ToLower(k1) == strings.ToLower(k2) {
+					matchCount++
+				}
+			}
+		}
+		if len(keywords) > 0 {
+			score := float64(matchCount) / float64(len(keywords))
+			if score > bestScore {
+				bestScore = score
+				bestMatch = interaction
+			}
 		}
 	}
-	details := strings.Join(keywords[:min(3, len(keywords))], ", ")
-	return fmt.Sprintf("Используя встроенные функции Go и учитывая такие концепции, как %s, можно решить этот вопрос более эффективно.", details)
+	return bestMatch, bestScore
+}
+
+func (ai *AIEngine) GenerateAnswer(question string) string {
+	keywords, concepts := ai.analyzeInput(question)
+	contextScore := ai.evaluateContext(keywords)
+
+	bestMatch, score := ai.findSimilarInteraction(keywords)
+	if score > 0.8 {
+		return ai.adaptResponse(bestMatch.Answer, keywords)
+	}
+
+	if answer, exists := ai.KB.LearnedEntries[question]; exists {
+		adapted := ai.adaptResponse(answer, keywords)
+		ai.learnFromInteraction(question, adapted, keywords, contextScore)
+		return adapted
+	}
+
+	questionLower := strings.ToLower(question)
+
+	if response, exists := ai.Greetings[questionLower]; exists {
+		return response
+	}
+
+	for key, value := range ai.CommonQuestions {
+		if strings.Contains(questionLower, key) {
+			return value
+		}
+	}
+
+	answer, score := ai.KB.FindBestMatch(question, ai.Embeddings)
+	if score > 0.7 {
+		return answer
+	}
+
+	doc, err := prose.NewDocument(question)
+	if err != nil {
+		return ai.DefaultResponses["error"]
+	}
+
+	keywords, concepts = ai.analyzeInput(question)
+
+	if len(keywords) > 0 {
+		techTerms := strings.Join(keywords[:min(3, len(keywords))], ", ")
+		if defaultResponse, ok := ai.DefaultResponses["keywords"]; ok {
+			return fmt.Sprintf(defaultResponse, techTerms)
+		}
+		return fmt.Sprintf("Let's explore %s in detail. What specific aspects interest you?", techTerms)
+	}
+
+	if defaultResponse, ok := ai.DefaultResponses["default"]; ok {
+		return defaultResponse
+	}
+
+	starters := []string{
+		"I'm here to help with Go programming. Could you specify what you'd like to learn about?",
+		"I can assist you with various Go topics. What interests you most?",
+		"Let me help you with Go! What would you like to explore?",
+	}
+
+	return starters[rand.Intn(len(starters))]
+}
+
+func (ai *AIEngine) analyzeInput(input string) ([]string, []string) {
+	doc, err := prose.NewDocument(input)
+	if err != nil {
+		return nil, nil
+	}
+
+	var keywords, concepts []string
+	for _, tok := range doc.Tokens() {
+		switch tok.Tag {
+		case "NOUN", "PROPN":
+			keywords = append(keywords, tok.Text)
+		case "VERB":
+			concepts = append(concepts, tok.Text)
+		}
+	}
+	return keywords, concepts
+}
+
+func (ai *AIEngine) evaluateContext(keywords []string) float64 {
+	var score float64
+	for _, word := range keywords {
+		if weight, exists := ai.Patterns[word]; exists {
+			score += weight
+		}
+	}
+	return score / float64(len(keywords))
+}
+
+func (ai *AIEngine) adaptResponse(base string, keywords []string) string {
+	if len(keywords) > 0 {
+		return fmt.Sprintf("Based on %s, I understand that %s",
+			strings.Join(keywords, ", "), base)
+	}
+	return base
+}
+
+func (ai *AIEngine) learnFromInteraction(q, a string, k []string, score float64) {
+	interaction := Interaction{
+		Question: q,
+		Answer:   a,
+		Keywords: k,
+		Score:    score,
+	}
+	ai.ContextMemory = append(ai.ContextMemory, interaction)
+
+	for _, keyword := range k {
+		ai.Patterns[keyword] += 0.1 * score
+	}
 }
 
 func cosineSimilarity(vec1, vec2 []float64) float64 {
@@ -213,8 +381,8 @@ func main() {
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 	http.HandleFunc("/ai", handleAI(ai))
 	http.HandleFunc("/", handleTemplates)
-	fmt.Println("Server starting on http://localhost:8080")
-	http.ListenAndServe("localhost:8080", nil)
+	fmt.Println("Server starting on http://0.0.0.0:8080")
+	http.ListenAndServe("0.0.0.0:8080", nil)
 }
 
 func min(a, b int) int {
